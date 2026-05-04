@@ -1,0 +1,717 @@
+---
+title: "Shiny_Project_ExtraCredit"
+author: "Janny Mauricio Velasco Alban"
+format: html
+editor: visual
+---
+
+# ANT388C Applied Data Analysis
+
+## Shiny App - Extra Credit
+
+## Web page based on my replication data analysis on Silva et. al 2021
+
+### Janny Mauricio Velasco Alban
+
+#### Packages
+
+```{r}
+
+library(shiny)
+library(tidyverse)
+library(DT)
+library(broom)
+library(corrplot)
+library(ggrepel)
+```
+
+#### Dataset
+
+```{r}
+
+# Dataset 1: Extractable elements — reference profiles (spatial, n=265)
+f1 <- "https://raw.githubusercontent.com/jmv3867/Data_Analysis_Replication_MVelasco/refs/heads/main/Extractable_elements_reference_profiles.csv"
+d1_raw <- read_csv(f1, col_names = TRUE, show_col_types = FALSE)
+
+# Clean column names for d1
+d1 <- d1_raw |>
+  rename(
+    X          = `Coordinate X`,
+    Y          = `Coordinate Y`,
+    ID         = ID,
+    Depth_cm   = `Depth (cm)`,
+    pH_H2O     = `pH H2O`,
+    pH_K2O     = `pH K2O`,
+    P          = `P (mg/dm3)`,
+    K          = `K (mg/dm3)`,
+    Na         = `Na (mg/dm3)`,
+    Ca         = `Ca (cmolc/dm3)`,
+    Mg         = `Mg (cmolc/dm3)`,
+    Al         = `Al (cmolc/dm3)`,
+    H_Al       = `H+Al(cmolc/dm3)`,
+    Fe         = `Fe (mg/dm3)`,
+    Zn         = `Zn (mg/dm3)`,
+    Mn         = `Mn (mg/dm3)`,
+    Cu         = `Cu (mg/dm3)`
+  )
+
+# Dataset 3: Total elements — maximum contrast profiles (depth profiles, n=301)
+
+f3 <- "https://raw.githubusercontent.com/jmv3867/Data_Analysis_Replication_MVelasco/refs/heads/main/Total_elements_maximum_contrast_profiles.csv"
+
+d3_colnames <- c("Sample", "Depth_cm", "Soil_type",
+                 "Mg", "P", "K", "Ca", "Ti", "Li", "Be", "Al",
+                 "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+                 "As", "Se", "Rb", "Sr", "Mo", "Ag", "Cd", "Cs",
+                 "Ba", "Tl", "Pb", "U")
+
+d3 <- read_csv(f3,
+               col_names = d3_colnames,
+               skip       = 2,          
+               show_col_types = FALSE) |>
+  filter(!is.na(Sample), !is.na(Depth_cm)) |>
+  mutate(across(all_of(c("Mg","P","K","Ca","Ti","Li","Be","Al",
+                          "V","Cr","Mn","Fe","Co","Ni","Cu","Zn",
+                          "As","Se","Rb","Sr","Mo","Ag","Cd","Cs",
+                          "Ba","Tl","Pb","U")), as.numeric),
+         Depth_cm = as.numeric(Depth_cm))
+```
+
+#### Aesthetics
+
+```{r}
+
+pal <- c("ADE" = "#2166ac", "Ultisol" = "#d6604d")
+
+theme_ade <- theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor  = element_blank(),
+    strip.background  = element_rect(fill = "grey90"),
+    legend.position   = "bottom",
+    plot.title        = element_text(face = "bold", size = 13),
+    plot.subtitle     = element_text(color = "#555", size = 10)
+  )
+
+```
+
+#### List of variables
+
+```{r}
+
+d1_elements <- c(
+  "P (Phosphorus)"    = "P",
+  "K (Potassium)"     = "K",
+  "Na (Sodium)"       = "Na",
+  "Ca (Calcium)"      = "Ca",
+  "Mg (Magnesium)"    = "Mg",
+  "Al (Aluminum)"     = "Al",
+  "Fe (Iron)"         = "Fe",
+  "Zn (Zinc)"         = "Zn",
+  "Mn (Manganese)"    = "Mn",
+  "Cu (Copper)"       = "Cu",
+  "pH (H₂O)"         = "pH_H2O",
+  "pH (K₂O)"         = "pH_K2O"
+)
+
+# d3 total elements
+d3_elements <- c(
+  "P (Phosphorus)"= "P",
+  "Ca (Calcium)"= "Ca",
+  "Mg (Magnesium)"= "Mg",
+  "K (Potassium)"= "K",
+  "Fe (Iron)"= "Fe",
+  "Al (Aluminum)"= "Al",
+  "Ti (Titanium)"= "Ti",
+  "Mn (Manganese)"= "Mn",
+  "Sr (Strontium)"= "Sr",
+  "Ba (Barium)"= "Ba",
+  "Zn (Zinc)"= "Zn",
+  "Cu (Copper)"= "Cu",
+  "Pb (Lead)"= "Pb",
+  "V (Vanadium)"= "V",
+  "Cr (Chromium)"= "Cr",
+  "Rb (Rubidium)"= "Rb",
+  "Ni (Nickel)"= "Ni",
+  "Co (Cobalt)"= "Co",
+  "Li (Lithium)"= "Li"
+)
+
+```
+
+#### The UI
+
+```{r}
+
+ui <- fluidPage(
+
+  # --- Title -----------------------------------------------------------------
+  titlePanel(
+    div(
+      h2("🌿 Amazonian Dark Earth Geochemical Explorer",
+         style = "margin-bottom: 2px; color: #1a3a5c;"),
+      h5(
+        HTML("Replication of <em>Silva et al. (2021) Nature Communications</em> &nbsp;|&nbsp;
+              ANT388C Applied Data Analysis &nbsp;|&nbsp; Janny M. Velasco Alban"),
+        style = "color: #555; margin-top: 0;"
+      )
+    )
+  ),
+
+  # --- Sidebar + Main --------------------------------------------------------
+  sidebarLayout(
+
+    # ---- SIDEBAR ------------------------------------------------------------
+    sidebarPanel(
+      width = 3,
+
+      # Section A: Dataset selector
+      h4("📂 Dataset", style = "color: #2166ac;"),
+      hr(style = "margin-top:4px;"),
+      radioButtons(
+        inputId  = "dataset",
+        label    = "Choose dataset:",
+        choices  = c(
+          "Extractable Elements (d1, n=265)" = "d1",
+          "Total Elements — depth profiles (d3, n=301)" = "d3"
+        ),
+        selected = "d3"
+      ),
+
+      br(),
+
+      # Section B: Element selector (dynamic)
+      h4("⚗️ Element", style = "color: #2166ac;"),
+      hr(style = "margin-top:4px;"),
+      uiOutput("element_selector"),
+
+      br(),
+
+      # Section C: Soil type filter
+      h4("🌱 Soil Type", style = "color: #2166ac;"),
+      hr(style = "margin-top:4px;"),
+      checkboxGroupInput(
+        inputId  = "soil_filter",
+        label    = "Show:",
+        choices  = c("ADE", "Ultisol"),
+        selected = c("ADE", "Ultisol")
+      ),
+
+      br(),
+
+      # Section D: Depth filter (only relevant for d3)
+      h4("📏 Depth Range (cm)", style = "color: #2166ac;"),
+      hr(style = "margin-top:4px;"),
+      sliderInput(
+        inputId = "depth_range",
+        label   = NULL,
+        min     = 0,
+        max     = 200,
+        value   = c(0, 200),
+        step    = 10
+      ),
+
+      br(),
+
+      # Section E: Plot options
+      h4("🎨 Plot Options", style = "color: #2166ac;"),
+      hr(style = "margin-top:4px;"),
+      checkboxInput("log_y",    "Log-scale Y axis",           value = FALSE),
+      checkboxInput("show_pts", "Show individual data points", value = TRUE),
+      checkboxInput("show_ci",  "Show 95% CI ribbon",         value = TRUE),
+
+      br(),
+      p(em("ADE = Amazonian Dark Earth | Ultisol = surrounding reference soil"),
+        style = "font-size:11px; color:#888;")
+    ),
+
+    # ---- MAIN PANEL ---------------------------------------------------------
+    mainPanel(
+      width = 9,
+
+      tabsetPanel(
+        id   = "tabs",
+        type = "tabs",
+
+        # Tab 1: Depth Profile
+        tabPanel(
+          "📉 Depth Profile",
+          br(),
+          p("Element concentration vs. soil depth, split by soil type.
+             This mirrors Figure 2 of Silva et al. (2021)."),
+          plotOutput("depth_plot", height = "480px"),
+          br(),
+          p(em("Note: Depth profile is only meaningful for Dataset d3 (total elements by core depth).
+                For d1 (reference profiles, all sampled at 20 cm), the boxplot comparison tab is more relevant."),
+            style = "color:#888; font-size:11px;")
+        ),
+
+        # Tab 2: ADE vs Ultisol Comparison
+        tabPanel(
+          "📦 ADE vs Ultisol",
+          br(),
+          p("Boxplot comparison of selected element between ADE and Ultisol soils.
+             A Welch two-sample t-test is computed reactively."),
+          plotOutput("box_plot",  height = "400px"),
+          br(),
+          h5("Welch Two-Sample t-test"),
+          tableOutput("ttest_table"),
+          br(),
+          p(em("* p < 0.05   ** p < 0.01   *** p < 0.001"),
+            style = "font-size:11px; color:#555;")
+        ),
+
+        # Tab 3: Bivariate Regression
+        tabPanel(
+          "📈 Bivariate Regression",
+          br(),
+          fluidRow(
+            column(4,
+              selectInput("reg_x", "X variable:",
+                          choices  = d3_elements,
+                          selected = "Ca"),
+              selectInput("reg_y", "Y variable:",
+                          choices  = d3_elements,
+                          selected = "P"),
+              checkboxInput("reg_log", "Log-transform both axes", value = TRUE),
+              checkboxInput("reg_color", "Color by soil type", value = TRUE)
+            ),
+            column(8,
+              plotOutput("reg_plot", height = "400px")
+            )
+          ),
+          br(),
+          h5("Linear Model Results (via broom::tidy)"),
+          tableOutput("reg_model_table"),
+          tableOutput("reg_glance_table")
+        ),
+
+        # Tab 4: Correlation Matrix
+        tabPanel(
+          "🔥 Correlation Matrix",
+          br(),
+          fluidRow(
+            column(4,
+              radioButtons("corr_soil", "Soil type for correlation:",
+                           choices  = c("All", "ADE", "Ultisol"),
+                           selected = "All"),
+              radioButtons("corr_dataset", "Dataset:",
+                           choices  = c("Total Elements (d3)" = "d3",
+                                        "Extractable Elements (d1)" = "d1"),
+                           selected = "d3")
+            ),
+            column(8,
+              p("Pearson correlation matrix of geochemical variables.
+                 Positive correlations (blue) between P, Ca, Sr, Ba in ADE soils
+                 support the alluvial hypothesis of Silva et al. (2021).")
+            )
+          ),
+          plotOutput("corr_plot", height = "560px")
+        ),
+
+        # Tab 5: Spatial Map (d1 only)
+        tabPanel(
+          "🗺️ Spatial Map",
+          br(),
+          p("Spatial distribution of the selected extractable element across the
+             sampling grid (Dataset d1 only). Point color = element concentration."),
+          fluidRow(
+            column(4,
+              selectInput("map_element", "Element to map:",
+                          choices  = d1_elements,
+                          selected = "P"),
+              checkboxInput("map_log", "Log-scale color", value = TRUE)
+            )
+          ),
+          plotOutput("map_plot", height = "480px"),
+          p(em("Coordinates are in UTM (SIRGAS 2000 / Zone 20S), Central Amazon, Brazil."),
+            style = "font-size:11px; color:#888;")
+        ),
+
+        # Tab 6: Data Table
+        tabPanel(
+          "🗂️ Data Table",
+          br(),
+          radioButtons("table_ds", "Dataset to browse:",
+                       choices  = c("Extractable Elements (d1)" = "d1",
+                                    "Total Elements (d3)"        = "d3"),
+                       selected = "d1",
+                       inline   = TRUE),
+          br(),
+          DT::dataTableOutput("data_table")
+        ),
+
+        # Tab 7: About
+        tabPanel(
+          "ℹ️ About",
+          br(),
+          h4("Scientific Context"),
+          p("Amazonian Dark Earths (ADE) are unusually fertile, charcoal-enriched soils
+             found at pre-Columbian archaeological sites in the Amazon basin. They have long
+             been interpreted as Anthrosols — soils created by indigenous peoples through
+             sustained occupation and organic waste deposition."),
+          p(strong("Silva et al. (2021)"), " challenge this view, arguing instead that
+             alluvial (natural fluvial) processes deposited the mineral elements (especially
+             P, Ca, Sr, Ba) that characterize ADE soils, thousands of years before evidence
+             of human occupation. Their geochemical evidence comes from a site in Central
+             Amazon comparing ADE profiles with adjacent Ultisol reference soils."),
+          h4("This App"),
+          p("This Shiny app interactively replicates and extends the key analyses from
+             Silva et al. (2021), using the original supplementary datasets. Built as part
+             of the ANT388C Applied Data Analysis extra credit Shiny exercise."),
+          h4("Reference"),
+          p("Silva, L.C.R., Corrêa, R.S., Wright, J.L. et al. (2021). A new hypothesis
+             for the origin of Amazonian Dark Earths.",
+            em("Nature Communications"), " 12, 127.",
+            a("https://doi.org/10.1038/s41467-020-20184-2",
+              href = "https://doi.org/10.1038/s41467-020-20184-2",
+              target = "_blank")),
+          h4("Datasets"),
+          tags$ul(
+            tags$li(strong("d1"), " — Extractable elements, reference profiles (n = 265 sampling points, all at 20 cm depth)"),
+            tags$li(strong("d3"), " — Total elements, maximum contrast profiles (n = 301 observations across 0–200 cm depth)")
+          ),
+          h4("Built With"),
+          p("{shiny}, {tidyverse}, {DT}, {broom}, {corrplot}, {ggrepel} in R"),
+          hr(),
+          p(em("ANT388C Applied Data Analysis | University of Texas at Austin | Spring 2026"),
+            style = "color:#888; font-size:12px;")
+        )
+      )
+    )
+  )
+)
+
+```
+
+#### The server
+
+```{r}
+
+server <- function(input, output, session) {
+
+  # --- Dynamic element selector based on dataset choice ----------------------
+  output$element_selector <- renderUI({
+    if (input$dataset == "d1") {
+      selectInput("element", "Select element:", choices = d1_elements, selected = "P")
+    } else {
+      selectInput("element", "Select element:", choices = d3_elements, selected = "P")
+    }
+  })
+
+  # --- Reactive: filtered dataset for main plots ----------------------------
+  active_data <- reactive({
+    req(input$soil_filter)
+    if (input$dataset == "d1") {
+      d1 |> filter(Depth_cm >= input$depth_range[1],
+                   Depth_cm <= input$depth_range[2])
+    } else {
+      d3 |> filter(Soil_type %in% input$soil_filter,
+                   Depth_cm  >= input$depth_range[1],
+                   Depth_cm  <= input$depth_range[2])
+    }
+  })
+
+  # --- TAB 1: Depth Profile Plot --------------------------------------------
+  output$depth_plot <- renderPlot({
+    req(input$element)
+    df <- active_data()
+
+    if (input$dataset == "d1") {
+      # d1 has no soil type column — show element distribution as histogram
+      ggplot(df, aes(x = .data[[input$element]])) +
+        geom_histogram(fill = "#2166ac", color = "white", bins = 30) +
+        labs(
+          title    = paste0("Distribution of ", input$element,
+                            " — Extractable Elements (d1)"),
+          subtitle = paste0("All samples collected at 20 cm depth | n = ", nrow(df)),
+          x        = input$element,
+          y        = "Count"
+        ) +
+        theme_ade +
+        if (input$log_y) scale_x_log10()
+
+    } else {
+      # d3: depth profile by soil type
+      df_sel <- df |>
+        filter(Soil_type %in% input$soil_filter) |>
+        select(Depth_cm, Soil_type, val = all_of(input$element)) |>
+        filter(!is.na(val))
+
+      # Summary for ribbon
+      df_sum <- df_sel |>
+        group_by(Depth_cm, Soil_type) |>
+        summarise(
+          mean_val = mean(val, na.rm = TRUE),
+          se       = sd(val, na.rm = TRUE) / sqrt(n()),
+          .groups  = "drop"
+        ) |>
+        mutate(
+          lo = mean_val - 1.96 * se,
+          hi = mean_val + 1.96 * se
+        )
+
+      p <- ggplot(df_sum, aes(x = mean_val, y = Depth_cm, color = Soil_type, fill = Soil_type)) +
+        scale_y_reverse(breaks = seq(0, 200, 20)) +
+        scale_color_manual(values = pal, name = "Soil type") +
+        scale_fill_manual(values  = pal, name = "Soil type")
+
+      if (input$show_ci) {
+        p <- p + geom_ribbon(aes(xmin = lo, xmax = hi), alpha = 0.15, color = NA)
+      }
+
+      if (input$show_pts) {
+        p <- p + geom_point(data = df_sel,
+                            aes(x = val, y = Depth_cm, color = Soil_type),
+                            alpha = 0.25, size = 1.2)
+      }
+
+      p <- p +
+        geom_path(linewidth = 1.2) +
+        geom_point(size = 2.5) +
+        labs(
+          title    = paste0(input$element, " by Depth — ADE vs Ultisol"),
+          subtitle = "Total elements, maximum contrast profiles (d3)",
+          x        = paste0(input$element, " (mg/kg)"),
+          y        = "Depth (cm)"
+        ) +
+        theme_ade
+
+      if (input$log_y) p <- p + scale_x_log10()
+      p
+    }
+  })
+
+  # --- TAB 2: Boxplot + t-test ----------------------------------------------
+  output$box_plot <- renderPlot({
+    req(input$element, length(input$soil_filter) > 0)
+
+    if (input$dataset == "d1") {
+      df <- d1 |>
+        select(val = all_of(input$element)) |>
+        mutate(Soil_type = "All (no type in d1)") |>
+        filter(!is.na(val))
+      ggplot(df, aes(x = Soil_type, y = val, fill = Soil_type)) +
+        geom_boxplot(alpha = 0.7, outlier.shape = 21) +
+        geom_jitter(width = 0.15, alpha = 0.3, size = 1.5) +
+        labs(title = paste0(input$element, " — No soil type grouping in d1"),
+             subtitle = "Switch to d3 for ADE vs Ultisol comparison",
+             y = input$element, x = "") +
+        theme_ade + theme(legend.position = "none")
+
+    } else {
+      df <- d3 |>
+        filter(Soil_type %in% input$soil_filter) |>
+        select(Soil_type, val = all_of(input$element)) |>
+        filter(!is.na(val))
+
+      p <- ggplot(df, aes(x = Soil_type, y = val, fill = Soil_type)) +
+        geom_boxplot(alpha = 0.75, outlier.shape = 21, width = 0.5) +
+        geom_jitter(aes(color = Soil_type), width = 0.15, alpha = 0.4, size = 1.8) +
+        scale_fill_manual(values  = pal) +
+        scale_color_manual(values = pal) +
+        labs(
+          title    = paste0(input$element, " — ADE vs Ultisol"),
+          subtitle = "Total elements, maximum contrast profiles (d3)",
+          x        = "Soil type",
+          y        = paste0(input$element, " (mg/kg)")
+        ) +
+        theme_ade + theme(legend.position = "none")
+
+      if (input$log_y) p <- p + scale_y_log10()
+      p
+    }
+  })
+
+  output$ttest_table <- renderTable({
+    req(input$dataset == "d3", length(input$soil_filter) == 2)
+    df <- d3 |>
+      filter(Soil_type %in% c("ADE", "Ultisol")) |>
+      select(Soil_type, val = all_of(input$element)) |>
+      filter(!is.na(val))
+
+    tt <- tryCatch(
+      t.test(val ~ Soil_type, data = df),
+      error = function(e) NULL
+    )
+    if (is.null(tt)) return(data.frame(Note = "Could not compute t-test (insufficient data)"))
+
+    sig <- ifelse(tt$p.value < 0.001, "***",
+           ifelse(tt$p.value < 0.01,  "**",
+           ifelse(tt$p.value < 0.05,  "*", "ns")))
+
+    data.frame(
+      Element        = input$element,
+      `Mean ADE`     = round(tt$estimate[2], 3),
+      `Mean Ultisol` = round(tt$estimate[1], 3),
+      `t statistic`  = round(tt$statistic, 3),
+      df             = round(tt$parameter, 1),
+      `p-value`      = formatC(tt$p.value, format = "e", digits = 3),
+      Significance   = sig,
+      check.names    = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, spacing = "s", align = "c", width = "100%")
+
+  # --- TAB 3: Bivariate Regression ------------------------------------------
+  output$reg_plot <- renderPlot({
+    req(input$reg_x, input$reg_y)
+    df <- d3 |>
+      select(Soil_type, x = all_of(input$reg_x), y = all_of(input$reg_y)) |>
+      filter(!is.na(x), !is.na(y))
+
+    if (input$reg_log) {
+      df <- df |> filter(x > 0, y > 0) |>
+        mutate(x = log10(x), y = log10(y))
+    }
+
+    if (input$reg_color) {
+      p <- ggplot(df, aes(x = x, y = y, color = Soil_type)) +
+        scale_color_manual(values = pal, name = "Soil type")
+    } else {
+      p <- ggplot(df, aes(x = x, y = y))
+    }
+
+    p +
+      geom_point(alpha = 0.6, size = 2) +
+      geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+      labs(
+        title    = paste0(if (input$reg_log) "log10(" else "",
+                          input$reg_y,
+                          if (input$reg_log) ")" else "",
+                          " ~ ",
+                          if (input$reg_log) "log10(" else "",
+                          input$reg_x,
+                          if (input$reg_log) ")" else ""),
+        subtitle = "Total elements — maximum contrast profiles (d3)",
+        x        = paste0(if (input$reg_log) "log10(" else "", input$reg_x,
+                          if (input$reg_log) ")" else ""),
+        y        = paste0(if (input$reg_log) "log10(" else "", input$reg_y,
+                          if (input$reg_log) ")" else "")
+      ) +
+      theme_ade
+  })
+
+  output$reg_model_table <- renderTable({
+    req(input$reg_x, input$reg_y)
+    df <- d3 |>
+      select(x = all_of(input$reg_x), y = all_of(input$reg_y)) |>
+      filter(!is.na(x), !is.na(y))
+    if (input$reg_log) df <- df |> filter(x > 0, y > 0) |>
+      mutate(x = log10(x), y = log10(y))
+
+    m <- lm(y ~ x, data = df)
+    tidy(m) |>
+      rename(Term = term, Estimate = estimate,
+             `Std. Error` = std.error,
+             `t-value` = statistic, `p-value` = p.value) |>
+      mutate(across(where(is.numeric), ~ round(.x, 4)))
+  }, striped = TRUE, bordered = TRUE, spacing = "s", align = "c", width = "100%")
+
+  output$reg_glance_table <- renderTable({
+    req(input$reg_x, input$reg_y)
+    df <- d3 |>
+      select(x = all_of(input$reg_x), y = all_of(input$reg_y)) |>
+      filter(!is.na(x), !is.na(y))
+    if (input$reg_log) df <- df |> filter(x > 0, y > 0) |>
+      mutate(x = log10(x), y = log10(y))
+
+    m <- lm(y ~ x, data = df)
+    glance(m) |>
+      select(r.squared, adj.r.squared, sigma, statistic, p.value, nobs) |>
+      rename(`R²` = r.squared, `Adj. R²` = adj.r.squared,
+             `Residual SE` = sigma, `F-statistic` = statistic,
+             `p-value` = p.value, `n` = nobs) |>
+      mutate(across(where(is.numeric), ~ round(.x, 4)))
+  }, striped = TRUE, bordered = TRUE, spacing = "s", align = "c", width = "100%")
+
+  # --- TAB 4: Correlation Matrix --------------------------------------------
+  output$corr_plot <- renderPlot({
+    if (input$corr_dataset == "d3") {
+      df <- d3
+      if (input$corr_soil != "All") df <- df |> filter(Soil_type == input$corr_soil)
+      vars <- c("P", "Ca", "Mg", "K", "Fe", "Al", "Ti", "Mn",
+                "Sr", "Ba", "Zn", "Cu", "Pb", "V", "Cr", "Rb")
+      df_num <- df |> select(all_of(vars)) |> na.omit()
+    } else {
+      df <- d1
+      vars <- c("P", "K", "Na", "Ca", "Mg", "Al", "Fe", "Zn", "Mn", "Cu",
+                "pH_H2O", "pH_K2O")
+      df_num <- df |> select(all_of(vars)) |> na.omit()
+    }
+
+    cor_mat <- cor(df_num, use = "complete.obs")
+    title_txt <- paste0(
+      "Pearson Correlations — ",
+      if (input$corr_dataset == "d3") "Total Elements (d3)" else "Extractable Elements (d1)",
+      if (input$corr_soil != "All") paste0(" | ", input$corr_soil, " only") else " | All soils"
+    )
+
+    corrplot(
+      cor_mat,
+      method      = "color",
+      type        = "upper",
+      tl.col      = "black",
+      tl.srt      = 45,
+      tl.cex      = 0.85,
+      addCoef.col = "black",
+      number.cex  = 0.60,
+      col         = colorRampPalette(c("#d6604d", "white", "#2166ac"))(200),
+      title       = title_txt,
+      mar         = c(0, 0, 2, 0)
+    )
+  })
+
+  # --- TAB 5: Spatial Map ---------------------------------------------------
+  output$map_plot <- renderPlot({
+    req(input$map_element)
+    df_map <- d1 |>
+      select(X, Y, val = all_of(input$map_element)) |>
+      filter(!is.na(val))
+
+    fill_vals <- if (input$map_log) log10(df_map$val + 1) else df_map$val
+    df_map$fill_val <- fill_vals
+    label_txt <- if (input$map_log) paste0("log10(", input$map_element, "+1)")
+                 else input$map_element
+
+    ggplot(df_map, aes(x = X, y = Y, color = fill_val)) +
+      geom_point(size = 3.5, alpha = 0.85) +
+      scale_color_viridis_c(
+        option = "plasma",
+        name   = label_txt,
+        direction = -1
+      ) +
+      coord_equal() +
+      labs(
+        title    = paste0("Spatial Distribution of ", input$map_element),
+        subtitle = "Extractable elements reference profiles (d1) | Central Amazon, Brazil",
+        x        = "UTM Easting (m)",
+        y        = "UTM Northing (m)"
+      ) +
+      theme_ade +
+      theme(legend.position = "right")
+  })
+
+  # --- TAB 6: Data Table ----------------------------------------------------
+  output$data_table <- DT::renderDataTable({
+    if (input$table_ds == "d1") {
+      d1 |> mutate(across(where(is.numeric), ~ round(.x, 3)))
+    } else {
+      d3 |> mutate(across(where(is.numeric), ~ round(.x, 3)))
+    }
+  },
+  options  = list(
+    pageLength = 10,
+    scrollX    = TRUE,
+    lengthMenu = list(c(10, 25, 50, -1), c("10", "25", "50", "All"))
+  ),
+  rownames = FALSE
+  )
+}
+```
+
+#### Let's run the app
+
+```{r}
+
+shinyApp(ui = ui, server = server)
+
+```
